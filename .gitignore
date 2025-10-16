@@ -1,0 +1,32 @@
+# Binaries
+/bin/
+/dist/
+/build/
+*.exe
+*.log
+*.out
+
+# Go
+vendor/
+coverage.out
+
+# IDE
+.idea/
+.vscode/
+
+# Config
+.env
+.env.local
+config.local.yaml
+
+# UI
+/ui/.next/
+/ui/node_modules/
+/ui/.turbo/
+/ui/.vercel/
+
+# Docker
+.docker/
+
+# Helm
+/deploy/helm/shortlink/charts/

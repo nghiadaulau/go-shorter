@@ -1,0 +1,30 @@
+server:
+  port: 8080
+  readTimeout: 15s
+  writeTimeout: 15s
+
+db:
+  dsn: "postgres://postgres:postgres@localhost:5432/shortlink?sslmode=disable"
+  maxOpenConns: 10
+  maxIdleConns: 5
+
+redis:
+  addr: "localhost:6379"
+  db: 0
+  pool: 10
+
+jwt:
+  secret: "changeme"
+  issuer: "shortlink"
+  ttl: 24h
+
+redirect:
+  cacheTTL: 48h
+  negativeTTL: 5m
+
+rateLimit:
+  writeRPM: 120
+
+telemetry:
+  otlpEndpoint: ""
+  enable: false

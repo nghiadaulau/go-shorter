@@ -1,0 +1,25 @@
+{
+  "name": "shortlink-ui",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "export": "next export",
+    "start": "npx serve -s out -l 3000"
+  },
+  "dependencies": {
+    "next": "14.2.5",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.7.2",
+    "@types/react": "19.2.2",
+    "autoprefixer": "10.4.19",
+    "postcss": "8.4.47",
+    "serve": "14.2.3",
+    "tailwindcss": "3.4.10",
+    "typescript": "5.6.2"
+  }
+}

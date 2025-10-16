@@ -1,0 +1,30 @@
+project_name: shortlink
+
+builds:
+  - id: api
+    main: ./cmd/shortlink-api
+    binary: shortlink-api
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+  - id: redirector
+    main: ./cmd/redirector
+    binary: redirector
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+  - id: collector
+    main: ./cmd/click-collector
+    binary: click-collector
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+
+archives:
+  - format: tar.gz
+
+changelog:
+  skip: true

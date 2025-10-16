@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shortlink-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: shortlink-api
+  template:
+    metadata:
+      labels:
+        app: shortlink-api
+    spec:
+      containers:
+        - name: api
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: []
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_DB_DSN
+              value: {{ .Values.env.DATABASE_URL | quote }}
+            - name: APP_REDIS_ADDR
+              value: {{ .Values.env.REDIS_ADDR | quote }}
+            - name: APP_JWT_SECRET
+              value: {{ .Values.env.JWT_SECRET | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shortlink-api
+spec:
+  selector:
+    app: shortlink-api
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redirector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redirector
+  template:
+    metadata:
+      labels:
+        app: redirector
+    spec:
+      containers:
+        - name: redirector
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/app/redirector"]
+          ports:
+            - containerPort: 8080
+          env:
+            - name: APP_DB_DSN
+              value: {{ .Values.env.DATABASE_URL | quote }}
+            - name: APP_REDIS_ADDR
+              value: {{ .Values.env.REDIS_ADDR | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redirector
+spec:
+  selector:
+    app: redirector
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: shortlink
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: shortlink-api
+                port:
+                  number: 80
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: redirector
+                port:
+                  number: 80

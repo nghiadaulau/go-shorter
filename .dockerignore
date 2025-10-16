@@ -1,0 +1,31 @@
+# VCS
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+
+# Build artifacts
+bin
+build
+/dist
+
+# Go
+vendor
+**/*.test
+coverage.out
+
+# UI node modules and build
+ui/node_modules
+ui/.next
+ui/out
+ui/.turbo
+ui/.vercel
+
+# Docker
+.docker
+
+# Misc
+*.log
+*.tmp
