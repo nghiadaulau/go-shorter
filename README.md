@@ -40,8 +40,7 @@ docker compose up -d postgres redis api redirector ui
 2) Apply migrations (if not applied yet)
 ```bash
 export DATABASE_URL="postgres://postgres:postgres@localhost:5432/shortlink?sslmode=disable"
-psql "$DATABASE_URL" -f migrations/0001_init.up.sql
-psql "$DATABASE_URL" -f migrations/0002_redirect_perf_indexes.up.sql
+make migrate-sql
 ```
 
 3) Seed admin
@@ -54,8 +53,8 @@ go run ./cmd/shortlink-api seed \
 
 4) Verify
 - API: http://localhost:8080/healthz
-- Redirector: http://localhost:8082/healthz
-- UI: http://localhost:3000/app/
+- Redirector: http://localhost:8085/healthz
+- UI: http://localhost:3000/
 
 ## Usage
 - Login to get JWT
@@ -76,10 +75,11 @@ curl -s -X POST http://localhost:8080/api/v1/links \
 curl -I http://localhost:8082/go
 ```
 
-## UI (Static)
-- Next.js configured with `output: export` and `basePath: /app`
-- Served via nginx container at http://localhost:3000/app/
-- Env: `NEXT_PUBLIC_API_BASE` (default http://localhost:8080), `NEXT_PUBLIC_REDIRECT_BASE` (default http://localhost:8082)
+## UI
+- Next.js + Tailwind, Charting via Recharts
+- Env: `NEXT_PUBLIC_API_BASE` (default http://localhost:8080), `NEXT_PUBLIC_REDIRECT_BASE` (default http://localhost:8085)
+- Dev: `cd ui && npm install && npm run dev`
+- Lint: `cd ui && npm run lint`; Format: `cd ui && npm run format`
 
 ## Helm (Kubernetes)
 ```bash
@@ -110,6 +110,8 @@ helm upgrade --install shortlink ./deploy/helm/shortlink \
 - Run redirector dev: `make run`
 - Build binaries: `make build`
 - Tests: `make test`
+- Lint Go/UI: `make lint`
+- Format Go: `make fmt-go`
 
 ## Testing
 - Unit tests: `go test ./...`

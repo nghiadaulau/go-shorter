@@ -129,6 +129,7 @@ func runServer() error {
 	s.SlugGen = slug.NewBase62(pool, "slug_seq")
 	// OG crawl queue key
 	s.Enq = queue.NewRedisListQueue(redisClient, "og:crawl")
+	s.Clicks = repoinfra.NewClicksAggRepoPG(pool)
 
 	// prometheus metrics endpoint
 	s.Router.Handle("/metrics", promhttp.Handler())

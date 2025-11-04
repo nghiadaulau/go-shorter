@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"github.com/jackc/pgx/v5/pgxpool"
-	
+	"go-shorter/internal/domain"
 )
 
 type LinkMetaRepoPG struct{ db *pgxpool.Pool }

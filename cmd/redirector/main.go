@@ -17,6 +17,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
 
+	"go-shorter/internal/delivery/middleware"
 	"go-shorter/internal/infra/postgres"
 	infredis "go-shorter/internal/infra/redis"
 	repo "go-shorter/internal/infra/repository"
@@ -90,6 +91,9 @@ func main() {
 			var sf singleflight.Group
 
 			r := chi.NewRouter()
+			// middlewares MUST come before any routes
+			r.Use(middleware.Recover(log))
+			r.Use(middleware.RequestLogger(log))
 			r.Handle("/metrics", promhttp.Handler())
 			r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
 			r.Get("/{slug}", func(w http.ResponseWriter, r *http.Request) {
@@ -101,6 +105,10 @@ func main() {
 
 				if v, ok := mem.Get(key); ok && v != "" {
 					cacheHitRatio.WithLabelValues("hit").Inc()
+					// enqueue click event (fire-and-forget)
+					go func(sl string) {
+						_ = redis.LPush(context.Background(), "clicks:agg", time.Now().UTC().Format(time.RFC3339)+"|"+sl+"|1|1").Err()
+					}(slug)
 					if isBot(ua) {
 						serveOG(w, r, slug, v, links, linkMeta)
 						redirectLatency.Observe(time.Since(start).Seconds())
@@ -117,6 +125,9 @@ func main() {
 					cancelR()
 					mem.Set(key, target)
 					cacheHitRatio.WithLabelValues("hit").Inc()
+					go func(sl string) {
+						_ = redis.LPush(context.Background(), "clicks:agg", time.Now().UTC().Format(time.RFC3339)+"|"+sl+"|1|1").Err()
+					}(slug)
 					if isBot(ua) {
 						serveOG(w, r, slug, target, links, linkMeta)
 						redirectLatency.Observe(time.Since(start).Seconds())
@@ -134,9 +145,12 @@ func main() {
 					defer cancelDB()
 					l, err := links.GetBySlug(ctxDB, 1, slug)
 					if err != nil || l == nil || !l.IsActive {
+						log.Warn("db miss", zap.String("slug", slug), zap.Error(err))
 						return "", fmt.Errorf("notfound")
 					}
-					_ = redis.Set(ctx, key, l.TargetURL, 24*time.Hour).Err()
+					if err := redis.Set(ctx, key, l.TargetURL, 24*time.Hour).Err(); err != nil {
+						log.Warn("redis set failed", zap.Error(err))
+					}
 					mem.Set(key, l.TargetURL)
 					return l.TargetURL, nil
 				})
@@ -146,6 +160,9 @@ func main() {
 					redirectLatency.Observe(time.Since(start).Seconds())
 					return
 				}
+				go func(sl string) {
+					_ = redis.LPush(context.Background(), "clicks:agg", time.Now().UTC().Format(time.RFC3339)+"|"+sl+"|1|1").Err()
+				}(slug)
 				if isBot(ua) {
 					serveOG(w, r, slug, target, links, linkMeta)
 					redirectLatency.Observe(time.Since(start).Seconds())

@@ -33,6 +33,7 @@ func main() {
 				return err
 			}
 			defer log.Sync()
+			log.Info("collector starting")
 			ctx := context.Background()
 			pool, err := postgres.NewPool(ctx, cfg.DB.DSN, cfg.DB.MaxOpenConns, cfg.DB.MaxIdleConns)
 			if err != nil {
@@ -41,52 +42,88 @@ func main() {
 			defer pool.Close()
 			redis := infredis.NewClient(cfg.Redis.Addr, cfg.Redis.DB, cfg.Redis.Pool)
 			q := queue.NewRedisListQueue(redis, "og:crawl")
+			qClicks := queue.NewRedisListQueue(redis, "clicks:agg")
 			links := repo.NewLinkRepoPG(pool)
 			metas := repo.NewLinkMetaRepoPG(pool)
+			clicks := repo.NewClicksAggRepoPG(pool)
 
+			// OG crawler consumer
+			go func() {
+				for {
+					payload, err := q.Dequeue(ctx, 10*time.Second)
+					if err != nil || payload == "" {
+						continue
+					}
+					parts := strings.SplitN(payload, "|", 2)
+					if len(parts) != 2 {
+						continue
+					}
+					slug, target := parts[0], parts[1]
+					log.Info("og task", zap.String("slug", slug))
+					ctxFetch, cancel := context.WithTimeout(ctx, 8*time.Second)
+					meta, err := ogcrawl.Fetch(ctxFetch, target)
+					cancel()
+					if err != nil {
+						log.Warn("og fetch failed", zap.String("slug", slug), zap.Error(err))
+						continue
+					}
+
+					var l *domain.Link
+					var lastErr error
+					for i := 0; i < 3; i++ {
+						ctxDB, cancelDB := context.WithTimeout(ctx, 6*time.Second)
+						l, lastErr = links.GetBySlug(ctxDB, 1, slug)
+						cancelDB()
+						if lastErr == nil && l != nil {
+							break
+						}
+						time.Sleep(250 * time.Millisecond)
+					}
+					if lastErr != nil || l == nil {
+						log.Warn("get by slug failed", zap.String("slug", slug), zap.Error(lastErr))
+						continue
+					}
+
+					m := &domain.LinkMeta{LinkID: l.ID, Title: meta.Title, Description: meta.Description, OGImage: meta.Image, NoPreview: false}
+					if m.Title == "" {
+						m.Title = slug
+					}
+					if m.Description == "" {
+						m.Description = target
+					}
+					if err := metas.Upsert(ctx, m); err != nil {
+						log.Warn("meta upsert failed", zap.Int64("link_id", l.ID), zap.Error(err))
+					} else {
+						log.Info("meta upserted", zap.Int64("link_id", l.ID))
+					}
+				}
+			}()
+
+			// Clicks aggregator consumer
 			for {
-				payload, err := q.Dequeue(ctx, 10*time.Second)
+				payload, err := qClicks.Dequeue(ctx, 10*time.Second)
 				if err != nil || payload == "" {
 					continue
 				}
-				parts := strings.SplitN(payload, "|", 2)
-				if len(parts) != 2 {
+				// format: YYYY-MM-DD[THH:mm:ssZ]|slug|delta|tenantID (date only also supported)
+				parts := strings.Split(payload, "|")
+				if len(parts) != 4 {
 					continue
 				}
-				slug, target := parts[0], parts[1]
-				ctxFetch, cancel := context.WithTimeout(ctx, 8*time.Second)
-				meta, err := ogcrawl.Fetch(ctxFetch, target)
-				cancel()
-				if err != nil {
-					log.Warn("og fetch failed", zap.String("slug", slug), zap.Error(err))
+				dayStr, slug, _, tenantStr := parts[0], parts[1], parts[2], parts[3]
+				var ts time.Time
+				// try RFC3339 first
+				if t, err := time.Parse(time.RFC3339, dayStr); err == nil {
+					ts = t
+				} else if t2, err2 := time.Parse("2006-01-02", dayStr); err2 == nil {
+					ts = t2
+				} else {
 					continue
 				}
-
-				var l *domain.Link
-				var lastErr error
-				for i := 0; i < 3; i++ {
-					ctxDB, cancelDB := context.WithTimeout(ctx, 6*time.Second)
-					l, lastErr = links.GetBySlug(ctxDB, 1, slug)
-					cancelDB()
-					if lastErr == nil && l != nil {
-						break
-					}
-					time.Sleep(250 * time.Millisecond)
-				}
-				if lastErr != nil || l == nil {
-					log.Warn("get by slug failed", zap.String("slug", slug), zap.Error(lastErr))
-					continue
-				}
-
-				m := &domain.LinkMeta{LinkID: l.ID, Title: meta.Title, Description: meta.Description, OGImage: meta.Image, NoPreview: false}
-				if m.Title == "" {
-					m.Title = slug
-				}
-				if m.Description == "" {
-					m.Description = target
-				}
-				if err := metas.Upsert(ctx, m); err != nil {
-					log.Warn("meta upsert failed", zap.Int64("link_id", l.ID), zap.Error(err))
+				var tenantID int64 = 1
+				_ = tenantStr // here default to 1; extend to parse if needed
+				if err := clicks.Inc(ctx, ts, slug, tenantID, 1); err != nil {
+					log.Warn("clicks inc failed", zap.String("slug", slug), zap.Error(err))
 				}
 			}
 		},

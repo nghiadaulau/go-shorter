@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,9 +12,11 @@ import (
 	"github.com/go-chi/cors"
 	"go.uber.org/zap"
 
+	"go-shorter/internal/delivery/middleware"
 	"go-shorter/internal/domain"
 	"go-shorter/internal/infra/queue"
-	"go-shorter/internal/repository"
+	repoinfra "go-shorter/internal/infra/repository"
+	ports "go-shorter/internal/repository"
 	"go-shorter/internal/service/auth"
 	"go-shorter/internal/service/ratelimit"
 	"go-shorter/internal/service/slug"
@@ -23,11 +26,12 @@ type Server struct {
 	Router      *chi.Mux
 	Log         *zap.Logger
 	JWT         *auth.JWTService
-	Users       repository.UserRepository
-	Links       repository.LinkRepository
+	Users       ports.UserRepository
+	Links       ports.LinkRepository
 	RateLimiter *ratelimit.RedisTokenBucket
 	SlugGen     slug.Generator
 	Enq         *queue.RedisListQueue
+	Clicks      *repoinfra.ClicksAggRepoPG
 }
 
 type response struct {
@@ -44,6 +48,8 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func NewServer(log *zap.Logger, jwt *auth.JWTService) *Server {
 	r := chi.NewRouter()
+	// recovery and logging
+	r.Use(middleware.Recover(log))
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "PATCH", "DELETE", "OPTIONS"},
@@ -51,6 +57,8 @@ func NewServer(log *zap.Logger, jwt *auth.JWTService) *Server {
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
+	// request logging
+	r.Use(middleware.RequestLogger(log))
 
 	s := &Server{Router: r, Log: log, JWT: jwt}
 	r.Get("/healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
@@ -245,7 +253,99 @@ func (s *Server) listLinks(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, response{Status: "ok", Data: out})
 }
 
-func (s *Server) linkStats(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }
+func (s *Server) linkStats(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+	q := r.URL.Query()
+	// Support either from/to (YYYY-MM-DD) or range
+	var (
+		from time.Time
+		to   time.Time
+	)
+	bucket := q.Get("bucket")
+	switch bucket {
+	case "hour", "minute", "second":
+		// ok
+	default:
+		bucket = "day"
+	}
+	fromStr := strings.TrimSpace(q.Get("from"))
+	toStr := strings.TrimSpace(q.Get("to"))
+	if fromStr != "" || toStr != "" {
+		// both must be provided
+		if fromStr == "" || toStr == "" {
+			writeJSON(w, 400, response{Status: "error", Error: "from and to are required together (YYYY-MM-DD)"})
+			return
+		}
+		var err error
+		// try RFC3339 first then date-only
+		if strings.Contains(fromStr, "T") {
+			from, err = time.Parse(time.RFC3339, fromStr)
+		} else {
+			from, err = time.Parse("2006-01-02", fromStr)
+		}
+		if err != nil {
+			writeJSON(w, 400, response{Status: "error", Error: "invalid from date"})
+			return
+		}
+		if strings.Contains(toStr, "T") {
+			to, err = time.Parse(time.RFC3339, toStr)
+		} else {
+			to, err = time.Parse("2006-01-02", toStr)
+		}
+		if err != nil {
+			writeJSON(w, 400, response{Status: "error", Error: "invalid to date"})
+			return
+		}
+		// normalize to day boundaries UTC
+		from = from.UTC()
+		to = to.UTC()
+		if to.Before(from) {
+			writeJSON(w, 400, response{Status: "error", Error: "to must be >= from"})
+			return
+		}
+	} else {
+		rangeStr := q.Get("range")
+		if rangeStr == "" {
+			rangeStr = "7d"
+		}
+		var dur time.Duration
+		if strings.HasSuffix(rangeStr, "d") {
+			daysStr := strings.TrimSuffix(rangeStr, "d")
+			if n, err := strconv.Atoi(daysStr); err == nil && n > 0 {
+				dur = time.Duration(n) * 24 * time.Hour
+			}
+		}
+		if dur == 0 {
+			if d, err := time.ParseDuration(rangeStr); err == nil {
+				dur = d
+			} else {
+				dur = 7 * 24 * time.Hour
+			}
+		}
+		to = time.Now().UTC().Truncate(24 * time.Hour)
+		from = to.Add(-dur)
+	}
+	if s.Clicks == nil {
+		writeJSON(w, 200, response{Status: "ok", Data: map[string]any{"points": []any{}, "total": 0}})
+		return
+	}
+	points, err := s.Clicks.ListBySlugRange(r.Context(), 1, slug, from, to, bucket)
+	if err != nil {
+		writeJSON(w, 500, response{Status: "error", Error: err.Error()})
+		return
+	}
+	var total int64
+	out := make([]map[string]any, 0, len(points))
+	for _, p := range points {
+		total += p.Total
+		if bucket == "day" {
+			out = append(out, map[string]any{"day": p.Time.UTC().Format("2006-01-02"), "total": p.Total})
+		} else {
+			out = append(out, map[string]any{"day": p.Time.UTC().Format(time.RFC3339), "total": p.Total})
+		}
+	}
+	writeJSON(w, 200, response{Status: "ok", Data: map[string]any{"points": out, "total": total}})
+}
 
 func validURL(u string) bool {
 	parsed, err := url.Parse(u)
