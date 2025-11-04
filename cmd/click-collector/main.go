@@ -105,14 +105,12 @@ func main() {
 				if err != nil || payload == "" {
 					continue
 				}
-				// format: YYYY-MM-DD[THH:mm:ssZ]|slug|delta|tenantID (date only also supported)
 				parts := strings.Split(payload, "|")
 				if len(parts) != 4 {
 					continue
 				}
 				dayStr, slug, _, tenantStr := parts[0], parts[1], parts[2], parts[3]
 				var ts time.Time
-				// try RFC3339 first
 				if t, err := time.Parse(time.RFC3339, dayStr); err == nil {
 					ts = t
 				} else if t2, err2 := time.Parse("2006-01-02", dayStr); err2 == nil {

@@ -17,7 +17,6 @@ type ClickPoint struct {
 func NewClicksAggRepoPG(db *pgxpool.Pool) *ClicksAggRepoPG { return &ClicksAggRepoPG{db: db} }
 
 func (r *ClicksAggRepoPG) Inc(ctx context.Context, ts time.Time, slug string, tenantID int64, delta int64) error {
-	// store by second bucket to allow higher resolution aggregations later
 	_, err := r.db.Exec(ctx, `INSERT INTO clicks_agg(bucket, slug, tenant_id, total)
     VALUES(date_trunc('second', $1::timestamptz), $2, $3, $4)
     ON CONFLICT (bucket, slug, tenant_id) DO UPDATE SET total = clicks_agg.total + EXCLUDED.total`, ts.UTC(), slug, tenantID, delta)

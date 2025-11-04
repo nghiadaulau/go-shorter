@@ -16,7 +16,6 @@ type Point = { day: string; total: number }
 
 type Stats = { total?: number; points?: Point[] }
 
-// Replaced inline SVG chart with ClicksChart (Recharts-based)
 
 export default function Home() {
   const router = useRouter()

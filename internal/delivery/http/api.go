@@ -256,7 +256,6 @@ func (s *Server) listLinks(w http.ResponseWriter, r *http.Request) {
 func (s *Server) linkStats(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
 	q := r.URL.Query()
-	// Support either from/to (YYYY-MM-DD) or range
 	var (
 		from time.Time
 		to   time.Time
@@ -277,7 +276,6 @@ func (s *Server) linkStats(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var err error
-		// try RFC3339 first then date-only
 		if strings.Contains(fromStr, "T") {
 			from, err = time.Parse(time.RFC3339, fromStr)
 		} else {
@@ -296,7 +294,6 @@ func (s *Server) linkStats(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 400, response{Status: "error", Error: "invalid to date"})
 			return
 		}
-		// normalize to day boundaries UTC
 		from = from.UTC()
 		to = to.UTC()
 		if to.Before(from) {

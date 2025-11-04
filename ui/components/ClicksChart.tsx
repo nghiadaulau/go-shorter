@@ -3,7 +3,6 @@ import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tool
 export type ClickPoint = { day: string; total: number }
 
 function formatDayLabel(day: string) {
-  // Support YYYY-MM-DD or RFC3339 timestamp
   if (!day) return ''
   if (day.includes('T')) {
     const d = new Date(day)
@@ -13,7 +12,6 @@ function formatDayLabel(day: string) {
       const hh = String(d.getUTCHours()).padStart(2, '0')
       const mi = String(d.getUTCMinutes()).padStart(2, '0')
       const ss = String(d.getUTCSeconds()).padStart(2, '0')
-      // if seconds present and not 00, show HH:mm:ss, else HH:mm
       if (ss !== '00') {
         return `${mm}-${dd} ${hh}:${mi}:${ss}`
       }

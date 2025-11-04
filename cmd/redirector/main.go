@@ -105,7 +105,6 @@ func main() {
 
 				if v, ok := mem.Get(key); ok && v != "" {
 					cacheHitRatio.WithLabelValues("hit").Inc()
-					// enqueue click event (fire-and-forget)
 					go func(sl string) {
 						_ = redis.LPush(context.Background(), "clicks:agg", time.Now().UTC().Format(time.RFC3339)+"|"+sl+"|1|1").Err()
 					}(slug)
@@ -119,7 +118,6 @@ func main() {
 					return
 				}
 
-				// redis with short deadline
 				ctxR, cancelR := context.WithTimeout(ctx, 300*time.Millisecond)
 				if target, err := redis.Get(ctxR, key).Result(); err == nil && target != "" {
 					cancelR()
