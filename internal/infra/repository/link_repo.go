@@ -2,8 +2,8 @@ package repository
 
 import (
 	"context"
-	"go-shorter/internal/domain"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go-shorter/internal/domain"
 )
 
 type LinkRepoPG struct{ db *pgxpool.Pool }
@@ -19,7 +19,9 @@ func (r *LinkRepoPG) Create(ctx context.Context, link *domain.Link) (int64, erro
 func (r *LinkRepoPG) GetBySlug(ctx context.Context, tenantID int64, slug string) (*domain.Link, error) {
 	row := r.db.QueryRow(ctx, `SELECT id, tenant_id, slug, target_url, is_active, expire_at, max_clicks, created_by, created_at, updated_at FROM links WHERE tenant_id=$1 AND slug=$2`, tenantID, slug)
 	l := domain.Link{}
-	if err := row.Scan(&l.ID, &l.TenantID, &l.Slug, &l.TargetURL, &l.IsActive, &l.ExpireAt, &l.MaxClicks, &l.CreatedBy, &l.CreatedAt, &l.UpdatedAt); err != nil { return nil, err }
+	if err := row.Scan(&l.ID, &l.TenantID, &l.Slug, &l.TargetURL, &l.IsActive, &l.ExpireAt, &l.MaxClicks, &l.CreatedBy, &l.CreatedAt, &l.UpdatedAt); err != nil {
+		return nil, err
+	}
 	return &l, nil
 }
 
@@ -35,12 +37,16 @@ func (r *LinkRepoPG) Delete(ctx context.Context, tenantID int64, slug string) er
 
 func (r *LinkRepoPG) List(ctx context.Context, tenantID int64, q string, limit, offset int) ([]domain.Link, error) {
 	rows, err := r.db.Query(ctx, `SELECT id, tenant_id, slug, target_url, is_active, expire_at, max_clicks, created_by, created_at, updated_at FROM links WHERE tenant_id=$1 AND ($2='' OR slug ILIKE '%'||$2||'%' OR target_url ILIKE '%'||$2||'%') ORDER BY id DESC LIMIT $3 OFFSET $4`, tenantID, q, limit, offset)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	defer rows.Close()
 	var out []domain.Link
 	for rows.Next() {
 		var l domain.Link
-		if err := rows.Scan(&l.ID, &l.TenantID, &l.Slug, &l.TargetURL, &l.IsActive, &l.ExpireAt, &l.MaxClicks, &l.CreatedBy, &l.CreatedAt, &l.UpdatedAt); err != nil { return nil, err }
+		if err := rows.Scan(&l.ID, &l.TenantID, &l.Slug, &l.TargetURL, &l.IsActive, &l.ExpireAt, &l.MaxClicks, &l.CreatedBy, &l.CreatedAt, &l.UpdatedAt); err != nil {
+			return nil, err
+		}
 		out = append(out, l)
 	}
 	return out, rows.Err()

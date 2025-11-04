@@ -15,10 +15,12 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"golang.org/x/sync/singleflight"
 
 	"go-shorter/internal/infra/postgres"
 	infredis "go-shorter/internal/infra/redis"
 	repo "go-shorter/internal/infra/repository"
+	"go-shorter/internal/service/cache"
 	"go-shorter/pkg/shared/config"
 	"go-shorter/pkg/shared/logger"
 )
@@ -54,7 +56,11 @@ var ogTpl = template.Must(template.New("og").Parse(`<!doctype html>
 func isBot(ua string) bool {
 	ua = strings.ToLower(ua)
 	bots := []string{"facebookexternalhit", "twitterbot", "slackbot", "whatsapp", "discordbot", "telegrambot", "googlebot", "bingbot"}
-	for _, b := range bots { if strings.Contains(ua, b) { return true } }
+	for _, b := range bots {
+		if strings.Contains(ua, b) {
+			return true
+		}
+	}
 	return false
 }
 
@@ -65,15 +71,23 @@ func main() {
 		Short: "Redirect edge server",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, log, err := loadConfig()
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			defer log.Sync()
 			ctx := context.Background()
 			pool, err := postgres.NewPool(ctx, cfg.DB.DSN, cfg.DB.MaxOpenConns, cfg.DB.MaxIdleConns)
-			if err != nil { return err }
+			if err != nil {
+				return err
+			}
 			defer pool.Close()
 			redis := infredis.NewClient(cfg.Redis.Addr, cfg.Redis.DB, cfg.Redis.Pool)
 			links := repo.NewLinkRepoPG(pool)
 			linkMeta := repo.NewLinkMetaRepoPG(pool)
+
+			// in-memory hot cache and singleflight group
+			mem := cache.NewTTL(5 * time.Minute)
+			var sf singleflight.Group
 
 			r := chi.NewRouter()
 			r.Handle("/metrics", promhttp.Handler())
@@ -85,13 +99,26 @@ func main() {
 				ctx := r.Context()
 				ua := r.Header.Get("User-Agent")
 
-				// short deadline for redis
-				ctxR, cancelR := context.WithTimeout(ctx, 120*time.Millisecond)
-				defer cancelR()
-				if target, err := redis.Get(ctxR, key).Result(); err == nil && target != "" {
+				if v, ok := mem.Get(key); ok && v != "" {
 					cacheHitRatio.WithLabelValues("hit").Inc()
 					if isBot(ua) {
-						serveOG(w, slug, target, linkMeta, redis)
+						serveOG(w, r, slug, v, links, linkMeta)
+						redirectLatency.Observe(time.Since(start).Seconds())
+						return
+					}
+					http.Redirect(w, r, v, http.StatusFound)
+					redirectLatency.Observe(time.Since(start).Seconds())
+					return
+				}
+
+				// redis with short deadline
+				ctxR, cancelR := context.WithTimeout(ctx, 300*time.Millisecond)
+				if target, err := redis.Get(ctxR, key).Result(); err == nil && target != "" {
+					cancelR()
+					mem.Set(key, target)
+					cacheHitRatio.WithLabelValues("hit").Inc()
+					if isBot(ua) {
+						serveOG(w, r, slug, target, links, linkMeta)
 						redirectLatency.Observe(time.Since(start).Seconds())
 						return
 					}
@@ -99,23 +126,32 @@ func main() {
 					redirectLatency.Observe(time.Since(start).Seconds())
 					return
 				}
+				cancelR()
 				cacheHitRatio.WithLabelValues("miss").Inc()
-				// short deadline for DB
-				ctxDB, cancelDB := context.WithTimeout(ctx, 200*time.Millisecond)
-				defer cancelDB()
-				l, err := links.GetBySlug(ctxDB, 1, slug)
-				if err != nil || !l.IsActive {
+
+				v, _, _ := sf.Do(key, func() (interface{}, error) {
+					ctxDB, cancelDB := context.WithTimeout(ctx, 800*time.Millisecond)
+					defer cancelDB()
+					l, err := links.GetBySlug(ctxDB, 1, slug)
+					if err != nil || l == nil || !l.IsActive {
+						return "", fmt.Errorf("notfound")
+					}
+					_ = redis.Set(ctx, key, l.TargetURL, 24*time.Hour).Err()
+					mem.Set(key, l.TargetURL)
+					return l.TargetURL, nil
+				})
+				target, _ := v.(string)
+				if target == "" {
 					w.WriteHeader(http.StatusNotFound)
 					redirectLatency.Observe(time.Since(start).Seconds())
 					return
 				}
-				_ = redis.Set(ctx, key, l.TargetURL, 24*time.Hour).Err()
 				if isBot(ua) {
-					serveOG(w, slug, l.TargetURL, linkMeta, redis)
+					serveOG(w, r, slug, target, links, linkMeta)
 					redirectLatency.Observe(time.Since(start).Seconds())
 					return
 				}
-				http.Redirect(w, r, l.TargetURL, http.StatusFound)
+				http.Redirect(w, r, target, http.StatusFound)
 				redirectLatency.Observe(time.Since(start).Seconds())
 			})
 			addr := fmt.Sprintf(":%d", 8085)
@@ -130,21 +166,48 @@ func main() {
 	}
 }
 
-func serveOG(w http.ResponseWriter, slug, target string, metaRepo *repo.LinkMetaRepoPG, redisClient *infredis.Client) {
-	// best-effort load meta (no strict timeout here for brevity)
-	// render minimal OG if not found
+func serveOG(w http.ResponseWriter, r *http.Request, slug, target string, links *repo.LinkRepoPG, metaRepo *repo.LinkMetaRepoPG) {
+	// Try to load metadata from DB for this slug
+	title := slug
+	desc := target
+	image := ""
+	// use a short context to avoid blocking bots too long
+	ctx, cancel := context.WithTimeout(r.Context(), 300*time.Millisecond)
+	defer cancel()
+	if l, err := links.GetBySlug(ctx, 1, slug); err == nil && l != nil {
+		if m, err2 := metaRepo.GetByLinkID(ctx, l.ID); err2 == nil && m != nil && !m.NoPreview {
+			if m.Title != "" {
+				title = m.Title
+			}
+			if m.Description != "" {
+				desc = m.Description
+			}
+			if m.OGImage != "" {
+				image = m.OGImage
+			}
+		}
+	}
+	shortURL := ""
+	if host := r.Host; host != "" {
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		shortURL = fmt.Sprintf("%s://%s/%s", scheme, host, slug)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	data := struct {
-		Title     string
+		Title       string
 		Description string
-		Image     string
-		ShortURL  string
-		TargetURL string
+		Image       string
+		ShortURL    string
+		TargetURL   string
 	}{
-		Title:     slug,
-		Description: target,
-		ShortURL:  "",
-		TargetURL: target,
+		Title:       title,
+		Description: desc,
+		Image:       image,
+		ShortURL:    shortURL,
+		TargetURL:   target,
 	}
 	_ = ogTpl.Execute(w, data)
 }
@@ -155,7 +218,7 @@ func loadConfig() (*config.AppConfig, *zap.Logger, error) {
 	if cfgPath != "" {
 		v.SetConfigFile(cfgPath)
 	} else {
-		v.SetConfigName("config.example")
+		v.SetConfigName("config")
 		v.AddConfigPath("./config")
 	}
 	v.SetEnvPrefix("APP")

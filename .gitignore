@@ -30,3 +30,4 @@ config.local.yaml
 
 # Helm
 /deploy/helm/shortlink/charts/
+/config/config.yaml

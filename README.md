@@ -97,7 +97,7 @@ helm upgrade --install shortlink ./deploy/helm/shortlink \
   - `APP_REDIS_ADDR=redis:6379`
   - `APP_JWT_SECRET=changeme`
   - `APP_SERVER_PORT=8080` (via YAML mapping server.port)
-- Example YAML: `config/config.example.yaml`
+- Example YAML: `config/config.yaml`
 
 ## Observability
 - Prometheus:

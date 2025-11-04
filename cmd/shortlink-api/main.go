@@ -17,6 +17,7 @@ import (
 	apihttp "go-shorter/internal/delivery/http"
 	"go-shorter/internal/domain"
 	"go-shorter/internal/infra/postgres"
+	"go-shorter/internal/infra/queue"
 	infredis "go-shorter/internal/infra/redis"
 	repoinfra "go-shorter/internal/infra/repository"
 	"go-shorter/internal/service/auth"
@@ -67,7 +68,7 @@ func loadConfig() (*config.AppConfig, *zap.Logger, error) {
 	if cfgPath != "" {
 		v.SetConfigFile(cfgPath)
 	} else {
-		v.SetConfigName("config.example")
+		v.SetConfigName("config")
 		v.AddConfigPath("./config")
 	}
 	v.SetEnvPrefix("APP")
@@ -100,13 +101,21 @@ func runServer() error {
 	var shutdown func(context.Context) error
 	if cfg.Telemetry.Enable && cfg.Telemetry.OTLPEndpoint != "" {
 		shutdown, err = telemetry.Setup(ctx, telemetry.Options{Endpoint: cfg.Telemetry.OTLPEndpoint, Service: "shortlink-api"})
-		if err != nil { log.Warn("otel setup failed", zap.Error(err)) }
+		if err != nil {
+			log.Warn("otel setup failed", zap.Error(err))
+		}
 	}
-	defer func() { if shutdown != nil { _ = shutdown(context.Background()) } }()
+	defer func() {
+		if shutdown != nil {
+			_ = shutdown(context.Background())
+		}
+	}()
 
 	// deps
 	pool, err := postgres.NewPool(ctx, cfg.DB.DSN, cfg.DB.MaxOpenConns, cfg.DB.MaxIdleConns)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer pool.Close()
 	redisClient := infredis.NewClient(cfg.Redis.Addr, cfg.Redis.DB, cfg.Redis.Pool)
 
@@ -118,6 +127,8 @@ func runServer() error {
 	s.Users = repoinfra.NewUserRepoPG(pool)
 	s.RateLimiter = ratelimit.NewRedisTokenBucket(redisClient)
 	s.SlugGen = slug.NewBase62(pool, "slug_seq")
+	// OG crawl queue key
+	s.Enq = queue.NewRedisListQueue(redisClient, "og:crawl")
 
 	// prometheus metrics endpoint
 	s.Router.Handle("/metrics", promhttp.Handler())
@@ -149,17 +160,23 @@ func runServer() error {
 
 func runSeed(cmd *cobra.Command, args []string) error {
 	cfg, log, err := loadConfig()
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer log.Sync()
 	ctx := context.Background()
 	pool, err := postgres.NewPool(ctx, cfg.DB.DSN, cfg.DB.MaxOpenConns, cfg.DB.MaxIdleConns)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	defer pool.Close()
 
 	tenantName := viper.GetString("seed.tenant")
 	email := viper.GetString("seed.adminEmail")
 	password := viper.GetString("seed.password")
-	if tenantName == "" || email == "" || password == "" { return fmt.Errorf("missing seed flags") }
+	if tenantName == "" || email == "" || password == "" {
+		return fmt.Errorf("missing seed flags")
+	}
 
 	tenantRepo := repoinfra.NewTenantRepoPG(pool)
 	userRepo := repoinfra.NewUserRepoPG(pool)
@@ -167,14 +184,20 @@ func runSeed(cmd *cobra.Command, args []string) error {
 	ten, err := tenantRepo.GetByName(ctx, tenantName)
 	if err != nil || ten == nil {
 		id, err2 := tenantRepo.CreateDefault(ctx, tenantName)
-		if err2 != nil { return err2 }
+		if err2 != nil {
+			return err2
+		}
 		ten = &domain.Tenant{ID: id, Name: tenantName}
 	}
 
 	hash, err := auth.HashPassword(password)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	_, err = userRepo.CreateAdmin(ctx, ten.ID, email, hash)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	log.Info("seeded admin user", zap.String("email", email), zap.Int64("tenant_id", ten.ID))
 	return nil
 }

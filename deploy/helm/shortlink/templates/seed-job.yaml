@@ -16,7 +16,7 @@ spec:
           image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["/app/shortlink-api"]
-          args: ["seed", "--admin-email", "{{ .Values.admin.email }}", "--password", "$(ADMIN_PASSWORD)", "--tenant", "{{ .Values.admin.tenant }}", "--config", "/app/config/config.example.yaml"]
+          args: ["seed", "--admin-email", "{{ .Values.admin.email }}", "--password", "$(ADMIN_PASSWORD)", "--tenant", "{{ .Values.admin.tenant }}", "--config", "/app/config/config.yaml"]
           env:
             - name: DATABASE_URL
               value: {{ .Values.env.DATABASE_URL | quote }}

@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"go-shorter/internal/domain"
+	"go-shorter/internal/infra/queue"
 	"go-shorter/internal/repository"
 	"go-shorter/internal/service/auth"
 	"go-shorter/internal/service/ratelimit"
@@ -26,6 +27,7 @@ type Server struct {
 	Links       repository.LinkRepository
 	RateLimiter *ratelimit.RedisTokenBucket
 	SlugGen     slug.Generator
+	Enq         *queue.RedisListQueue
 }
 
 type response struct {
@@ -171,6 +173,10 @@ func (s *Server) createLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = id
+	// enqueue OG crawl task: payload format slug|target_url
+	if s.Enq != nil {
+		_ = s.Enq.Enqueue(r.Context(), slugStr+"|"+link.TargetURL)
+	}
 	writeJSON(w, http.StatusCreated, response{Status: "ok", Data: toDTO(link)})
 }
 
