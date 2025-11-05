@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: shortlink-api
 spec:
-  replicas: 1
+  replicas: {{ .Values.api.replicaCount }}
   selector:
     matchLabels:
       app: shortlink-api
@@ -12,10 +12,11 @@ spec:
       labels:
         app: shortlink-api
     spec:
+      serviceAccountName: {{ include "shortlink.serviceAccountName" . }}
       containers:
         - name: api
-          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ .Values.api.image.repository }}:{{ .Values.api.image.tag }}
+          imagePullPolicy: {{ .Values.api.image.pullPolicy }}
           args: []
           ports:
             - containerPort: 8080
@@ -43,7 +44,7 @@ kind: Deployment
 metadata:
   name: redirector
 spec:
-  replicas: 1
+  replicas: {{ .Values.redirector.replicaCount }}
   selector:
     matchLabels:
       app: redirector
@@ -52,11 +53,11 @@ spec:
       labels:
         app: redirector
     spec:
+      serviceAccountName: {{ include "shortlink.serviceAccountName" . }}
       containers:
         - name: redirector
-          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: ["/app/redirector"]
+          image: {{ .Values.redirector.image.repository }}:{{ .Values.redirector.image.tag }}
+          imagePullPolicy: {{ .Values.redirector.image.pullPolicy }}
           ports:
             - containerPort: 8080
           env:
@@ -76,25 +77,30 @@ spec:
     - port: 80
       targetPort: 8080
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+{{- if .Values.collector.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
 metadata:
-  name: shortlink
+  name: click-collector
 spec:
-  rules:
-    - http:
-        paths:
-          - path: /api
-            pathType: Prefix
-            backend:
-              service:
-                name: shortlink-api
-                port:
-                  number: 80
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: redirector
-                port:
-                  number: 80
+  replicas: {{ .Values.collector.replicaCount }}
+  selector:
+    matchLabels:
+      app: click-collector
+  template:
+    metadata:
+      labels:
+        app: click-collector
+    spec:
+      serviceAccountName: {{ include "shortlink.serviceAccountName" . }}
+      containers:
+        - name: collector
+          image: {{ .Values.collector.image.repository }}:{{ .Values.collector.image.tag }}
+          imagePullPolicy: {{ .Values.collector.image.pullPolicy }}
+          env:
+            - name: APP_DB_DSN
+              value: {{ .Values.env.DATABASE_URL | quote }}
+            - name: APP_REDIS_ADDR
+              value: {{ .Values.env.REDIS_ADDR | quote }}
+{{- end }}

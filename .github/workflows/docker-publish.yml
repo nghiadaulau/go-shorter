@@ -24,6 +24,10 @@ jobs:
             context: .
             dockerfile: cmd/click-collector/Dockerfile
             image: shortlink-collector
+          - name: ui
+            context: ./ui
+            dockerfile: Dockerfile
+            image: shortlink-ui
 
     steps:
       - name: Checkout
