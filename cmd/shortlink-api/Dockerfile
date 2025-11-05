@@ -1,0 +1,19 @@
+FROM golang:1.24-alpine AS build
+RUN apk --no-cache add git
+RUN adduser -u 1001 app -D
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+ARG GIT_COMMIT=dev
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X 'main.Version=${GIT_COMMIT}'" -o /out/exec ./cmd/shortlink-api
+
+FROM alpine:3.20
+WORKDIR /app
+COPY --from=build /etc/passwd /etc/passwd
+COPY --from=build /out/exec /app/exec
+USER 1001
+EXPOSE 8080
+ENTRYPOINT ["/app/exec"]
+
+

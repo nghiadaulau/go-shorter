@@ -22,6 +22,7 @@ import (
 )
 
 var cfgPath string
+var Version string
 
 func main() {
 	cmd := &cobra.Command{
@@ -34,6 +35,9 @@ func main() {
 			}
 			defer log.Sync()
 			log.Info("collector starting")
+			if Version != "" {
+				log.Info("version", zap.String("version", Version))
+			}
 			ctx := context.Background()
 			pool, err := postgres.NewPool(ctx, cfg.DB.DSN, cfg.DB.MaxOpenConns, cfg.DB.MaxIdleConns)
 			if err != nil {

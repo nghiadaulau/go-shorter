@@ -27,6 +27,7 @@ import (
 )
 
 var cfgPath string
+var Version string
 
 var (
 	cacheHitRatio = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -77,6 +78,9 @@ func main() {
 			}
 			defer log.Sync()
 			ctx := context.Background()
+			if Version != "" {
+				log.Info("version", zap.String("version", Version))
+			}
 			pool, err := postgres.NewPool(ctx, cfg.DB.DSN, cfg.DB.MaxOpenConns, cfg.DB.MaxIdleConns)
 			if err != nil {
 				return err

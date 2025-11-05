@@ -30,6 +30,7 @@ import (
 
 var (
 	cfgPath string
+	Version string
 )
 
 func main() {
@@ -95,6 +96,9 @@ func runServer() error {
 		return err
 	}
 	defer log.Sync()
+	if Version != "" {
+		log.Info("version", zap.String("version", Version))
+	}
 
 	ctx := context.Background()
 	// telemetry
