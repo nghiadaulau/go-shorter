@@ -20,59 +20,22 @@ collector:
     pullPolicy: IfNotPresent
   replicaCount: 1
 
-env:
-  DATABASE_URL: "postgres://postgres:postgres@postgres:5432/shortlink?sslmode=disable"
-  REDIS_ADDR: "redis:6379"
-  JWT_SECRET: "changeme"
-
 ui:
   image:
     repository: nghiadaulau/shortlink-ui
     tag: v0.0.1
     pullPolicy: IfNotPresent
-  env:
-    NEXT_PUBLIC_API_BASE: "http://shortlink-api"
 
-admin:
-  email: "admin@example.com"
-  tenant: "default"
-  # password will be sourced from secret
-  passwordSecretName: "shortlink-admin"
-  passwordSecretKey: "password"
-
-seedJob:
-  enabled: true
-
-autoscaling:
-  api:
-    enabled: false
-    minReplicas: 2
-    maxReplicas: 5
-  redirector:
-    enabled: false
-    minReplicas: 2
-    maxReplicas: 10
-
-resources:
-  api:
-    limits:
-      cpu: 500m
-      memory: 512Mi
-    requests:
-      cpu: 100m
-      memory: 128Mi
-  redirector:
-    limits:
-      cpu: 500m
-      memory: 256Mi
-    requests:
-      cpu: 50m
-      memory: 64Mi
+env:
+  DATABASE_URL: "postgres://postgres:postgres@postgres:5432/shortlink?sslmode=disable"
+  REDIS_ADDR: "redis:6379"
+  JWT_SECRET: "changeme"
 
 serviceAccount:
   create: true
-  name: ""
+  automount: true
   annotations: {}
+  name: ""
 
 ingress:
   enabled: true

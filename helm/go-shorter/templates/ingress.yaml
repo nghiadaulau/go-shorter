@@ -1,38 +1,4 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: shortlink-ui
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: shortlink-ui
-  template:
-    metadata:
-      labels:
-        app: shortlink-ui
-    spec:
-      serviceAccountName: {{ include "shortlink.serviceAccountName" . }}
-      containers:
-        - name: ui
-          image: {{ .Values.ui.image.repository }}:{{ .Values.ui.image.tag }}
-          imagePullPolicy: {{ .Values.ui.image.pullPolicy }}
-          ports:
-            - containerPort: 80
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: shortlink-ui
-spec:
-  selector:
-    app: shortlink-ui
-  ports:
-    - port: 80
-      targetPort: 80
----
 {{- if .Values.ingress.enabled }}
----
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
