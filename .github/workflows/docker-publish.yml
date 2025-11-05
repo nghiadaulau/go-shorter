@@ -43,17 +43,14 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Extract metadata (tags, labels)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            docker.io/${{ secrets.DOCKER_USERNAME }}/${{ matrix.service.image }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=tag
-            type=sha,priority=100
-            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Compute tags
+        id: tags
+        run: |
+          USER="${{ secrets.DOCKER_USERNAME }}"
+          IMAGE="${{ matrix.service.image }}"
+          REPO="docker.io/${USER}/${IMAGE}"
+          # Tag strictly by commit hash (full SHA)
+          printf '%s\n' "list=${REPO}:${GITHUB_SHA}" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -63,10 +60,9 @@ jobs:
           push: true
           build-args: |
             GIT_COMMIT=${{ github.sha }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.tags.outputs.list }}
           platforms: linux/amd64
-          cache-from: type=registry,ref=docker.io/${{ secrets.DOCKER_USERNAME }}/${{ matrix.service.image }}:buildcache
-          cache-to: type=registry,ref=docker.io/${{ secrets.DOCKER_USERNAME }}/${{ matrix.service.image }}:buildcache,mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
 
