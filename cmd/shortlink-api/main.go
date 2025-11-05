@@ -126,7 +126,7 @@ func runServer() error {
 	s.Links = repoinfra.NewLinkRepoPG(pool)
 	s.Users = repoinfra.NewUserRepoPG(pool)
 	s.RateLimiter = ratelimit.NewRedisTokenBucket(redisClient)
-	s.SlugGen = slug.NewBase62(pool, "slug_seq")
+	s.SlugGen = slug.NewShortID()
 	// OG crawl queue key
 	s.Enq = queue.NewRedisListQueue(redisClient, "og:crawl")
 	s.Clicks = repoinfra.NewClicksAggRepoPG(pool)
