@@ -39,7 +39,7 @@ migrate-sql: ## Run SQL migrations via psql (no external CLI required)
 	psql "${DATABASE_URL}" -f migrations/0003_clicks_agg_hour_bucket.up.sql;
 
 seed: ## Seed admin
-	$(GO) run ./cmd/shortlink-api seed --admin-email nhatnghiatyper@gmail.com --password Nghia1305 --tenant default --config ./config/config.yaml
+	$(GO) run ./cmd/shortlink-api seed --admin-email admin@example.com --password Admin@123 --tenant default --config ./config/config.yaml
 
 # Create DB if missing (connect to 'postgres' database to create target DB)
 db-create: ## Create database if not exists
