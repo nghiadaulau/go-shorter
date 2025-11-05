@@ -2,9 +2,7 @@ name: Build and Push Docker Images
 
 on:
   push:
-    branches: [ main, production ]
     tags: [ 'v*.*.*' ]
-  workflow_dispatch: {}
 
 jobs:
   build-and-push:
@@ -43,14 +41,14 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Compute tags
+      - name: Compute tags (use git tag as image tag)
         id: tags
         run: |
           USER="${{ secrets.DOCKER_USERNAME }}"
           IMAGE="${{ matrix.service.image }}"
           REPO="docker.io/${USER}/${IMAGE}"
-          # Tag strictly by commit hash (full SHA)
-          printf '%s\n' "list=${REPO}:${GITHUB_SHA}" >> $GITHUB_OUTPUT
+          # Use the git tag (e.g., v1.2.3) as the image tag
+          printf '%s\n' "list=${REPO}:${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -61,7 +59,7 @@ jobs:
           build-args: |
             GIT_COMMIT=${{ github.sha }}
           tags: ${{ steps.tags.outputs.list }}
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
